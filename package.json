@@ -10,8 +10,9 @@
     "build:web": "vite build --config vite.config.js",
     "start": "electron .",
     "dev": "concurrently -k \"vite --config vite.config.js\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_DEV=1 electron .\"",
-    "dist:win": "npm run build:web && electron-builder --win",
-    "release": "npm run build:web && electron-builder --win --publish always",
+    "dist:win": "npm run build:web && electron-builder --win --publish never",
+    "package:win": "npm run build:web && electron-builder --win --publish never",
+    "release": "npm run package:win",
     "check:sut": "node scripts/check-sut.mjs"
   },
   "dependencies": {

@@ -31,14 +31,14 @@ jobs:
           $version = node -p "require('./package.json').version"
           "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Windows yükleyicisini derle ve draft Release’e yükle
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          EP_DRAFT: 'true'
-        run: npm run release
+      - name: Windows yükleyicisini oluştur
+        run: npm run package:win
 
-      - name: Release’i otomatik yayımla
+      - name: Windows Release’i ve tüm asset’leri yayımla
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         shell: pwsh
-        run: gh release edit "v$env:APP_VERSION" --repo "$env:GITHUB_REPOSITORY" --draft=false
+        run: |
+          $assets = Get-ChildItem -Path release -File | Where-Object { $_.Name -match '\.(exe|blockmap|yml)$' } | ForEach-Object { $_.FullName }
+          if (-not $assets) { throw 'release klasöründe Windows asset’i bulunamadı.' }
+          gh release create "v$env:APP_VERSION" $assets --repo "$env:GITHUB_REPOSITORY" --title "Eczane SUT Kontrol $env:APP_VERSION" --notes "Windows masaüstü sürümü otomatik oluşturuldu."
