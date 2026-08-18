@@ -1,0 +1,24 @@
+import fs from 'node:fs/promises';
+import crypto from 'node:crypto';
+import path from 'node:path';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
+const manifestUrl = 'https://raw.githubusercontent.com/Kezzapci/eczane-sut-updates/main/sut/latest.json';
+const manifest = await (await fetch(`${manifestUrl}?t=${Date.now()}`, { cache: 'no-store' })).json();
+const response = await fetch(manifest.packageUrl);
+if (!response.ok) throw new Error(`SUT paketi HTTP ${response.status}`);
+const bytes = Buffer.from(await response.arrayBuffer());
+const sha = crypto.createHash('sha256').update(bytes).digest('hex');
+if (bytes.length !== manifest.bytes) throw new Error(`Boyut eşleşmiyor: ${bytes.length} != ${manifest.bytes}`);
+if (sha !== manifest.sha256) throw new Error(`SHA-256 eşleşmiyor: ${sha} != ${manifest.sha256}`);
+const tmp = path.join('/tmp', `sut-delivery-${Date.now()}.zip`);
+await fs.writeFile(tmp, bytes);
+const { stdout } = await execFileAsync('unzip', ['-Z1', tmp]);
+const paths = stdout.split(/\r?\n/).filter(Boolean);
+const hasDocument = paths.some((item) => /2013 SUT.*\.docx$/i.test(item));
+const hasEk4a = paths.some((item) => /EK-4A.*\.xlsx$/i.test(item) && !/MÜLGA|MULGA/i.test(item));
+if (!hasDocument || !hasEk4a) throw new Error(`Zorunlu dosya eksik: SUT=${hasDocument}, EK-4A=${hasEk4a}`);
+await fs.rm(tmp, { force: true });
+console.log(JSON.stringify({ dataVersion: manifest.dataVersion, bytes: bytes.length, sha256: sha, fileCount: paths.length, hasDocument, hasEk4a }));

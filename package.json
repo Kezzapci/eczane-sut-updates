@@ -1,0 +1,65 @@
+{
+  "name": "eczane-sut-kontrol",
+  "version": "0.1.1",
+  "description": "Windows 11 için eczane rapor kontrol ve SUT güncelleme uygulaması",
+  "main": "electron/main.cjs",
+  "author": "Kezzapci",
+  "license": "UNLICENSED",
+  "private": true,
+  "scripts": {
+    "build:web": "vite build --config vite.config.js",
+    "start": "electron .",
+    "dev": "concurrently -k \"vite --config vite.config.js\" \"wait-on http://127.0.0.1:5173 && cross-env ELECTRON_DEV=1 electron .\"",
+    "dist:win": "npm run build:web && electron-builder --win",
+    "release": "npm run build:web && electron-builder --win --publish always",
+    "check:sut": "node scripts/check-sut.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.3.9",
+    "extract-zip": "^2.0.1"
+  },
+  "devDependencies": {
+    "concurrently": "^9.1.2",
+    "cross-env": "^7.0.3",
+    "electron": "^37.2.6",
+    "electron-builder": "^26.0.12",
+    "vite": "^7.0.6",
+    "wait-on": "^8.0.3"
+  },
+  "build": {
+    "appId": "tr.kezzapci.eczanesutkontrol",
+    "productName": "Eczane SUT Kontrol",
+    "asar": true,
+    "directories": {
+      "output": "release"
+    },
+    "files": [
+      "dist/**/*",
+      "electron/**/*",
+      "package.json"
+    ],
+    "win": {
+      "target": [
+        {
+          "target": "nsis",
+          "arch": [
+            "x64"
+          ]
+        }
+      ]
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true
+    },
+    "publish": {
+      "provider": "github",
+      "owner": "Kezzapci",
+      "repo": "eczane-sut-updates",
+      "releaseType": "release"
+    }
+  }
+}
