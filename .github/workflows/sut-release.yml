@@ -54,7 +54,8 @@ jobs:
           set -euo pipefail
           rm -rf /tmp/sut-unpacked
           mkdir -p /tmp/sut-unpacked
-          unzip -q /tmp/sut-fetch/sut-package.zip -d /tmp/sut-unpacked
+          unzip -q /tmp/sut-fetch/sut-package.zip -d /tmp/sut-unpacked || true
+          test "$(find /tmp/sut-unpacked -type f | wc -l)" -gt 0
           ek4a=$(find /tmp/sut-unpacked -type f \( -iname '*EK-4A*.xlsx' -o -iname '*EK-4A*.xls' \) ! -iname '*MULGA*' ! -iname '*MÜLGA*' | head -n 1)
           test -n "$ek4a"
           python scripts/build-medicine-index.py "$ek4a" /tmp/sut-fetch/medicine-index.json
