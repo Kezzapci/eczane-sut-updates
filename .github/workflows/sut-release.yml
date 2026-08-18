@@ -53,7 +53,8 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          gh release create "$release_tag" "/tmp/sut-fetch/sut-package.zip#${asset_name}" --repo "$GITHUB_REPOSITORY" --title "SUT veri ${data_version}" --notes "Resmi SGK kaynağı SHA-256 ile doğrulanarak otomatik yayımlandı."
+          cp /tmp/sut-fetch/sut-package.zip "/tmp/sut-fetch/${asset_name}"
+          gh release create "$release_tag" "/tmp/sut-fetch/${asset_name}" --repo "$GITHUB_REPOSITORY" --title "SUT veri ${data_version}" --notes "Resmi SGK kaynağı SHA-256 ile doğrulanarak otomatik yayımlandı."
 
       - name: latest manifesti yayımla
         if: steps.fetch.outputs.changed == 'true'
