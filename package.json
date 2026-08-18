@@ -1,6 +1,6 @@
 {
   "name": "eczane-sut-kontrol",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "Windows 11 için eczane rapor kontrol ve SUT güncelleme uygulaması",
   "main": "electron/main.cjs",
   "author": "Kezzapci",

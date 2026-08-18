@@ -5,7 +5,7 @@ const state = {
   fileName: '',
   rows: [],
   checkedAt: 'Henüz kontrol yapılmadı',
-  appVersion: '0.2.0',
+  appVersion: typeof __APP_VERSION__ !== 'undefined' ? __APP_VERSION__ : '0.4.0',
   updateText: 'Otomatik güncelleme etkin',
   sutText: 'Otomatik kontrol açık',
   sutVersion: 'Veri aranıyor',
@@ -15,6 +15,9 @@ const state = {
   searchResults: [],
   selectedMedicine: null,
   assistantText: 'Bir barkod okutun veya ilaç adı yazın. Kaynaklı ön kontrol özeti burada görünecek.',
+  assistantAssessment: null,
+  aiBusy: false,
+  workflow: { treatment: '', setting: '', reportCode: '', indication: '', reportSpecialist: false, prescriptionSpecialist: false, quantityRule: false },
   medicineIndex: null,
   lastActions: []
 };
@@ -51,6 +54,7 @@ function icon(name, size = 18) {
 function statusLabel(status) {
   if (status === 'ok') return '<span class="status-pill ok"><span class="status-dot"></span>Uygun</span>';
   if (status === 'warn') return '<span class="status-pill warn"><span class="status-dot"></span>İncelenmeli</span>';
+  if (status === 'error') return '<span class="status-pill error"><span class="status-dot"></span>Uyuşmuyor</span>';
   return '<span class="status-pill error"><span class="status-dot"></span>Eksik bilgi</span>';
 }
 
@@ -76,6 +80,16 @@ function renderRows() {
     </tr>`).join('');
 }
 
+function renderMedicineVisual(medicine) {
+  const imageUrl = typeof medicine?.imageUrl === 'string' && /^https:\/\//i.test(medicine.imageUrl) ? medicine.imageUrl : '';
+  const label = String(medicine?.name || 'İlaç').replace(/\s+/g, ' ').trim();
+  const shortLabel = label.length > 62 ? `${label.slice(0, 59)}…` : label;
+  if (imageUrl) {
+    return `<div class="medicine-visual real-image"><img src="${esc(imageUrl)}" alt="${esc(label)} ürün görseli" loading="lazy" onerror="this.classList.add('is-broken')" /><div class="visual-fallback"><div class="package-render"><span>SGK / EK-4A</span><strong>${esc(shortLabel)}</strong><small>${esc(medicine.barcode || '')}</small></div><em>Görsel yüklenemedi</em></div><small class="visual-source">Ürün görseli · kaynak kaydı</small></div>`;
+  }
+  return `<div class="medicine-visual identity-visual"><div class="package-render"><span>SGK / EK-4A</span><strong>${esc(shortLabel)}</strong><small>${esc(medicine.barcode || '')}</small><i></i></div><small class="visual-source">Kimlik görseli · resmî SGK indeksinde ambalaj fotoğrafı yok</small></div>`;
+}
+
 function renderMedicineCard() {
   const medicine = state.selectedMedicine;
   if (!medicine) {
@@ -83,7 +97,7 @@ function renderMedicineCard() {
   }
   const old = medicine.oldBarcodes?.length ? medicine.oldBarcodes.join(', ') : 'Kayıtlı eski barkod yok';
   return `<div class="medicine-card">
-    <div class="medicine-card-top"><div class="medicine-symbol">${icon('shield', 24)}</div><div class="medicine-card-title"><strong>${esc(medicine.name)}</strong><span>${esc(medicine.matchType || 'EK-4A kaydı')} · Kamu No: ${esc(medicine.publicNo || '—')}</span></div><span class="verified-badge">${icon('check', 13)} Kaynaklı</span></div>
+    <div class="medicine-card-overview"><div class="medicine-visual-wrap">${renderMedicineVisual(medicine)}</div><div class="medicine-card-info"><div class="medicine-card-top"><div class="medicine-symbol">${icon('shield', 24)}</div><div class="medicine-card-title"><strong>${esc(medicine.name)}</strong><span>${esc(medicine.matchType || 'EK-4A kaydı')} · Kamu No: ${esc(medicine.publicNo || '—')}</span></div><span class="verified-badge">${icon('check', 13)} Kaynaklı</span></div></div></div>
     <div class="medicine-meta-grid">
       <div><span>Güncel barkod</span><strong>${esc(medicine.barcode || '—')}</strong></div>
       <div><span>Eşdeğer grup</span><strong>${esc(medicine.equivalenceGroup || 'Belirtilmemiş')}</strong></div>
@@ -108,7 +122,8 @@ function getCriteria() {
     { key: 'medicineMatch', label: 'İlaç barkodu ve rapor eşleşmesi', value: barcodeMatches, note: hasMedicine ? (reportBarcode ? 'Seçilen ürünle barkod karşılaştırması' : 'Raporda barkod alanı bekleniyor') : 'Önce ilaç seçin' },
     { key: 'diagnosis', label: 'Tanı veya ICD-10 bilgisi', value: row.diagnosis, note: 'SUT koşul eşleştirmesi' },
     { key: 'dose', label: 'Etkin madde, doz ve kullanım', value: row.dose, note: 'Ürün kullanım koşulu' },
-    { key: 'specialist', label: 'Uzmanlık / rapor düzenleyen branş', value: row.specialist, note: 'Yetkili uzmanlık kontrolü' }
+    { key: 'specialist', label: 'Uzmanlık / rapor düzenleyen branş', value: row.specialist, note: 'Yetkili uzmanlık kontrolü' },
+    { key: 'packageCount', label: 'Kutu miktarı ve kullanım sınırı', value: row.packageCount, note: 'Reçete/rapor miktarı' }
   ];
   return required.map((item) => {
     if (item.key === 'medicineMatch') return { ...item, status: !hasMedicine || !state.rows.length ? 'warn' : barcodeMatches ? 'ok' : 'error' };
@@ -131,10 +146,44 @@ function renderSearchResults() {
   return `<div class="search-results">${state.searchResults.map((item, index) => `<button class="search-result" data-result-index="${index}"><span class="result-symbol">${icon('barcode', 18)}</span><span><strong>${esc(item.name)}</strong><small>${esc(item.barcode || '—')} · Kamu No ${esc(item.publicNo || '—')}</small></span><span class="result-match">${esc(item.matchType || 'Eşleşme')} ${icon('chevron', 14)}</span></button>`).join('')}</div>`;
 }
 
-function renderAssistant() {
+function buildSmartAssessment() {
+  const row = state.rows[0] || {};
   const medicine = state.selectedMedicine;
-  const source = medicine ? `SGK EK-4/A · ${medicine.publicNo || medicine.barcode || 'ürün kaydı'}` : 'Kaynak bekleniyor';
-  return `<section class="card assistant-card"><div class="card-header assistant-header"><div class="assistant-heading"><span class="assistant-icon">${icon('spark', 21)}</span><div><h2 class="card-title">Akıllı kontrol asistanı</h2><div class="card-description">Kaynaklı ön değerlendirme · insan onayı gerektirir</div></div></div><span class="ai-chip">AI destekli</span></div><div class="assistant-body"><p class="assistant-text">${esc(state.assistantText)}</p><div class="assistant-source">${icon('shield', 14)} <span>${esc(source)}</span><span class="source-dot">·</span><span>Her sonuç kaynak maddesiyle gösterilir</span></div></div></section>`;
+  const reportBarcode = String(row.barcode || '').trim();
+  const knownBarcodes = (medicine?.barcodes || [medicine?.barcode]).filter(Boolean).map(String);
+  const barcodeMatch = Boolean(medicine && reportBarcode && knownBarcodes.includes(reportBarcode));
+  const evidence = [
+    { label: 'İlaç kaydı', value: medicine?.name || 'İlaç seçilmedi', status: medicine ? 'ok' : 'warn', source: medicine ? `SGK EK-4/A · Kamu No ${medicine.publicNo || '—'}` : 'Resmi indeks kaydı bekleniyor' },
+    { label: 'Barkod karşılaştırması', value: reportBarcode || 'Raporda barkod yok', status: !medicine || !reportBarcode ? 'warn' : barcodeMatch ? 'ok' : 'error', source: medicine ? `Seçilen barkod: ${knownBarcodes.join(', ')}` : 'Seçilen ürün yok' },
+    { label: 'Rapor / tanı kanıtı', value: row.report && row.diagnosis ? `${row.report} · ${row.diagnosis}` : 'Rapor no veya tanı eksik', status: row.report && row.diagnosis ? 'ok' : 'warn', source: row.report && row.diagnosis ? 'Yüklenen rapor' : 'PDF/XLSX/CSV alan eşleştirmesi' },
+    { label: 'Tarih ve doz', value: row.date && row.endDate && row.dose ? `${row.date} — ${row.endDate} · ${row.dose}` : 'Tarih, bitiş veya doz eksik', status: row.date && row.endDate && row.dose ? 'ok' : 'warn', source: 'Yüklenen rapor' },
+    { label: 'Uzmanlık kanıtı', value: row.specialist || 'Uzmanlık/branş bulunamadı', status: row.specialist ? 'ok' : 'warn', source: row.specialist ? 'Yüklenen rapor' : 'Kullanıcı teyidi veya belge alanı gerekli' },
+    { label: 'Kutu miktarı', value: row.packageCount || 'Kutu miktarı bulunamadı', status: row.packageCount ? 'ok' : 'warn', source: row.packageCount ? 'Yüklenen rapor/reçete' : 'Sayısal miktar girilmedi' }
+  ];
+  const workflowMissing = [
+    ['Tedavi türü', state.workflow.treatment || row.treatment],
+    ['Ayaktan/yatan', state.workflow.setting || row.setting],
+    ['Rapor veya reçete kodu', state.workflow.reportCode || row.reportCode],
+    ['Endikasyon', state.workflow.indication || row.indication || row.diagnosis]
+  ].filter(([, value]) => !value).map(([label]) => label);
+  const errors = barcodeMatch || !medicine || !reportBarcode ? (medicine && reportBarcode && !barcodeMatch ? ['Seçilen ilaç ile rapor barkodu uyuşmuyor'] : []) : [];
+  const warnings = evidence.filter((item) => item.status === 'warn').map((item) => item.label).concat(workflowMissing);
+  const conclusion = errors.length ? 'Uygunsuzluk riski bulundu: barkod uyuşmazlığı' : warnings.length ? 'Manuel inceleme gerekli: kanıt veya SUT sorusu eksik' : 'Ön kontrol uygun görünüyor: yetkili kişi onayı gerekli';
+  const confidence = errors.length ? 'Düşük' : warnings.length > 3 ? 'Düşük' : warnings.length ? 'Orta' : 'Yüksek';
+  return { evidence, errors, warnings, workflowMissing, conclusion, confidence, source: medicine ? `SGK EK-4/A · ${medicine.publicNo || medicine.barcode || 'ürün kaydı'}` : 'Kaynak bekleniyor' };
+}
+
+function renderSmartWorkflow() {
+  const row = state.rows[0] || {};
+  const option = (value, label, current) => `<option value="${esc(value)}" ${current === value ? 'selected' : ''}>${esc(label)}</option>`;
+  return `<div class="smart-workflow"><div class="smart-workflow-title"><span>${icon('spark', 14)} SUT soru akışı</span><small>Videodaki manuel adımlar · kullanıcı teyidi</small></div><div class="smart-fields"><label>Tedavi türü<select data-workflow="treatment"><option value="">Seçiniz</option>${option('Raporlu', 'Raporlu', state.workflow.treatment || row.treatment)}${option('Raporsuz', 'Raporsuz', state.workflow.treatment || row.treatment)}</select></label><label>Uygulama yeri<select data-workflow="setting"><option value="">Seçiniz</option>${option('Ayaktan', 'Ayaktan', state.workflow.setting || row.setting)}${option('Yatan', 'Yatan', state.workflow.setting || row.setting)}</select></label><label>Rapor / reçete kodu<input data-workflow="reportCode" value="${esc(state.workflow.reportCode || row.reportCode)}" placeholder="Örn. 258" /></label><label>Endikasyon<input data-workflow="indication" value="${esc(state.workflow.indication || row.indication || row.diagnosis)}" placeholder="Örn. derin ven trombozu profilaksisi" /></label></div><div class="smart-checks"><label><input type="checkbox" data-workflow="reportSpecialist" ${state.workflow.reportSpecialist ? 'checked' : ''} /> Rapor hekimi uygun branşta</label><label><input type="checkbox" data-workflow="prescriptionSpecialist" ${state.workflow.prescriptionSpecialist ? 'checked' : ''} /> Reçete hekimi uygun branşta</label><label><input type="checkbox" data-workflow="quantityRule" ${state.workflow.quantityRule ? 'checked' : ''} /> Kutu miktarı kuralı teyit edildi</label></div></div>`;
+}
+
+function renderAssistant() {
+  const assessment = state.assistantAssessment || buildSmartAssessment();
+  const status = assessment.errors.length ? 'error' : assessment.warnings.length ? 'warn' : 'ok';
+  const evidenceRows = assessment.evidence.map((item) => `<div class="evidence-row"><span class="criteria-icon ${item.status}">${item.status === 'ok' ? icon('check', 12) : item.status === 'error' ? icon('close', 12) : icon('alert', 12)}</span><div><strong>${esc(item.label)}</strong><small>${esc(item.value)}</small></div><span class="evidence-source">${esc(item.source)}</span></div>`).join('');
+  return `<section class="card assistant-card"><div class="card-header assistant-header"><div class="assistant-heading"><span class="assistant-icon">${icon('spark', 21)}</span><div><h2 class="card-title">Akıllı kontrol asistanı</h2><div class="card-description">Kanıt-temelli ön değerlendirme · insan onayı gerektirir</div></div></div><div class="assistant-actions"><span class="ai-chip">AI destekli</span><button class="assistant-action" id="run-ai-analysis" ${state.aiBusy ? 'disabled' : ''}>${state.aiBusy ? 'Analiz ediliyor…' : 'Akıllı analiz'}</button></div></div><div class="assistant-body"><div class="assistant-verdict ${status}"><strong>${esc(assessment.conclusion)}</strong><span>Güven düzeyi: ${esc(assessment.confidence)}</span></div><p class="assistant-text">${esc(state.assistantText)}</p><div class="evidence-list">${evidenceRows}</div>${renderSmartWorkflow()}<div class="assistant-source">${icon('shield', 14)} <span>${esc(assessment.source)}</span><span class="source-dot">·</span><span>SUT sürümü: ${esc(state.sutVersion)}</span><span class="source-dot">·</span><span>Ödeme kararı değildir</span></div></div></section>`;
 }
 
 function renderDashboard() {
@@ -142,15 +191,38 @@ function renderDashboard() {
   const ok = state.rows.filter((row) => row.status === 'ok').length;
   const warn = state.rows.filter((row) => row.status === 'warn').length;
   const error = state.rows.filter((row) => row.status === 'error').length;
-  return `<section class="content fade-in">
-    <div class="page-heading"><div><div class="eyebrow">ECZANE ÇALIŞMA ALANI</div><h1 class="page-title">Rapor kontrol merkezi</h1><p class="page-subtitle">Barkoddan rapor uygunluğuna kadar tüm kontrolü tek ekranda yönetin.</p></div><button class="primary-button" id="choose-report">${icon('upload', 17)} Yeni rapor yükle</button></div>
-    <div class="status-strip"><div class="status-copy"><span class="status-check">${icon('check', 15)}</span><span><strong>Sistem hazır.</strong> ${esc(state.updateText)} · ${esc(state.sutText)}.</span></div><button class="status-link" id="show-update">Sürüm ve veri bilgisi ${icon('chevron', 13)}</button></div>
-    <div class="stat-grid"><div class="stat-card"><div class="stat-top"><span class="stat-label">Toplam rapor</span><span class="stat-icon blue">${icon('document', 17)}</span></div><div class="stat-value">${formatCount(total)}</div><div class="stat-note">Son yüklenen dosyadaki kayıtlar</div></div><div class="stat-card"><div class="stat-top"><span class="stat-label">Uygun kayıt</span><span class="stat-icon green">${icon('check', 17)}</span></div><div class="stat-value">${formatCount(ok)}</div><div class="stat-note"><strong>${total ? Math.round(ok / total * 100) : 0}%</strong> kontrol sonucu</div></div><div class="stat-card"><div class="stat-top"><span class="stat-label">İncelenmeli</span><span class="stat-icon amber">${icon('alert', 17)}</span></div><div class="stat-value">${formatCount(warn)}</div><div class="stat-note">Manuel teyit bekleyenler</div></div><div class="stat-card"><div class="stat-top"><span class="stat-label">Eksik bilgi</span><span class="stat-icon red">${icon('close', 17)}</span></div><div class="stat-value">${formatCount(error)}</div><div class="stat-note">Düzeltilmesi gereken alanlar</div></div></div>
-    <section class="card barcode-workspace"><div class="card-header workspace-header"><div><div class="section-kicker">1 · İLAÇ SEÇİMİ</div><h2 class="card-title">Barkod okut veya ilaç ara</h2><div class="card-description">USB barkod okuyucu klavye gibi çalışır. Barkod numarasını elle de yazabilirsiniz.</div></div><span class="live-badge"><span></span> Canlı arama</span></div><div class="barcode-input-wrap"><span class="input-leading">${icon('barcode', 22)}</span><input id="barcode-input" value="${esc(state.barcodeInput)}" autocomplete="off" placeholder="Barkodu okutun veya ilaç adını yazın…" /><button class="clear-input" id="clear-barcode" title="Temizle">${icon('close', 16)}</button><button class="scan-button" id="scan-barcode">${icon('search', 16)} Ara</button></div>${renderSearchResults()}${renderMedicineCard()}</section>
-    <div class="grid-main"><div><section class="card"><div class="card-header"><div><div class="section-kicker">2 · RAPOR KONTROLÜ</div><h2 class="card-title">Rapor dosyası ve sonuçlar</h2><div class="card-description">PDF, Excel veya CSV dosyanızı yükleyin; bulunan alanları kontrol listesiyle karşılaştırın.</div></div><button class="secondary-button" id="run-check">${icon('check', 16)} Kontrolü çalıştır</button></div><div class="card-body"><div class="upload-zone" id="upload-zone"><div class="upload-icon">${icon('upload', 28)}</div><div class="upload-title">${state.fileName ? esc(state.fileName) : 'Rapor dosyasını buraya bırakın'}</div><div class="upload-help">veya bilgisayarınızdan seçmek için düğmeyi kullanın</div><button class="secondary-button" id="browse-report">Dosya seç</button><div class="upload-formats">Desteklenen formatlar: PDF · XLSX · CSV</div></div><input id="file-input" class="file-input" type="file" accept=".pdf,.xlsx,.xls,.csv,.txt" /></div></section><section class="card results-card"><div class="card-header"><div><div class="section-kicker">SONUÇLAR</div><h2 class="card-title">Kontrol sonuçları</h2><div class="card-description">${state.fileName ? esc(state.fileName) : 'Henüz rapor yüklenmedi'}</div></div><button class="card-link" id="export-results">${icon('download', 14)} Dışa aktar</button></div><div class="table-wrap"><table class="report-table"><thead><tr><th>Hasta</th><th>İlaç / barkod</th><th>Rapor no</th><th>Tanı</th><th>Tarih</th><th>Durum</th><th></th></tr></thead><tbody>${renderRows()}</tbody></table></div></section></div><div class="side-stack"><section class="card checklist-card"><div class="card-header"><div><div class="section-kicker">3 · GEREKSİNİMLER</div><h2 class="card-title">Raporda bunlar var mı?</h2><div class="card-description">Seçilen ürün ve dosyaya göre ön kontrol</div></div><span class="check-count">${getCriteria().filter((item) => item.status === 'ok').length}/${getCriteria().length}</span></div><div class="criteria-list">${renderCriteria()}</div><div class="card-footnote">${icon('info', 14)} Kesin ödeme kararı için ilgili SUT maddesini ve raporu yetkili kişi doğrulamalıdır.</div></section>${renderAssistant()}<section class="card sut-card"><div class="card-header"><div><div class="section-kicker">VERİ MERKEZİ</div><h2 class="card-title">SUT veri sürümü</h2><div class="card-description">Resmi SGK kaynağı takipte</div></div><span class="sut-rotate">${icon('refresh', 18)}</span></div><div class="sut-body"><div class="sut-status"><div class="sut-status-icon">${icon('check', 17)}</div><div><div class="sut-status-title">${esc(state.sutText)}</div><div class="sut-status-copy">Kaynak doğrulama ve geri alma açık</div></div></div><div class="sut-meta"><div><span>SUT sürümü</span><strong>${esc(state.sutVersion)}</strong></div><div><span>Son tarama</span><strong>${esc(state.sutCheckedAt)}</strong></div></div><button class="secondary-button sut-button" id="refresh-sut">${icon('refresh', 15)} Şimdi denetle</button></div></section></div></div>
+  const assessment = state.assistantAssessment || buildSmartAssessment();
+  const completion = total ? Math.round(ok / total * 100) : 0;
+  const activity = state.lastActions.length
+    ? state.lastActions.slice(0, 3).map((item, index) => `<div class="activity-item"><span class="activity-line ${index === 0 ? 'active' : ''}"></span><div><strong>${esc(item.title)}</strong><small>${esc(item.time)}</small></div></div>`).join('')
+    : '<div class="activity-empty">Bu oturumdaki hareketler burada görünecek.</div>';
+  const steps = [
+    { label: 'İlaç', state: state.selectedMedicine ? 'done' : 'current' },
+    { label: 'Rapor', state: state.fileName ? 'done' : state.selectedMedicine ? 'current' : '' },
+    { label: 'SUT', state: state.rows.length ? 'current' : '' },
+    { label: 'Sonuç', state: state.checkedAt.includes('tamamlandı') ? 'done' : '' }
+  ];
+  return `<section class="content dashboard-page fade-in">
+    <div class="hero-row">
+      <div class="hero-copy">
+        <div class="eyebrow live-eyebrow"><span class="pulse-dot"></span> ECZANE ÇALIŞMA MASASI <span class="eyebrow-separator">/</span> ${state.fileName ? esc(state.fileName) : 'Yeni oturum'}</div>
+        <h1 class="page-title">Raporu <span>kanıta</span> dönüştürün.</h1>
+        <p class="page-subtitle">Barkodu seçin, raporu yükleyin ve SUT ön kontrolünü tek bakışta yönetin.</p>
+        <div class="hero-actions"><button class="primary-button glow-button" id="choose-report">${icon('upload', 16)} Yeni rapor yükle</button><button class="ghost-button" id="show-update">${icon('shield', 15)} ${esc(state.sutVersion)}</button></div>
+      </div>
+      <div class="hero-orbit" aria-hidden="true"><div class="orbit orbit-one"></div><div class="orbit orbit-two"></div><div class="orbit-core">${icon('shield', 28)}<span></span></div><div class="orbit-label label-one">SGK</div><div class="orbit-label label-two">AI</div><div class="orbit-label label-three">SUT</div></div>
+    </div>
+    <div class="signal-bar"><div class="signal-main"><span class="signal-icon">${icon('check', 14)}</span><div><strong>Sistem hazır</strong><span>${esc(state.updateText)} · ${esc(state.sutText)}</span></div></div><div class="signal-cell"><span>VERİ SÜRÜMÜ</span><strong>${esc(state.sutVersion)}</strong></div><div class="signal-cell"><span>SON TARAMA</span><strong>${esc(state.sutCheckedAt)}</strong></div><button class="signal-action" id="refresh-sut">${icon('refresh', 15)} Denetle</button></div>
+    <div class="metric-row"><div class="metric-card"><div class="metric-label"><span class="metric-bullet blue"></span>TOPLAM RAPOR</div><strong>${formatCount(total)}</strong><small>Bu oturumda yüklendi</small></div><div class="metric-card"><div class="metric-label"><span class="metric-bullet green"></span>UYGUN KAYIT</div><strong>${formatCount(ok)}</strong><small><b>${completion}%</b> kontrol sonucu</small></div><div class="metric-card"><div class="metric-label"><span class="metric-bullet amber"></span>İNCELEME</div><strong>${formatCount(warn)}</strong><small>Manuel teyit bekliyor</small></div><div class="metric-card"><div class="metric-label"><span class="metric-bullet red"></span>UYUŞMAZLIK</div><strong>${formatCount(error)}</strong><small>Düzeltilmesi gereken</small></div></div>
+    <div class="command-grid">
+      <section class="workspace-card medicine-panel"><div class="panel-topline"><span class="panel-index">01</span><span class="panel-kicker">İLAÇ SEÇİMİ</span><span class="panel-live"><i></i> canlı indeks</span></div><h2 class="workspace-title">Ürünü barkoddan yakalayın.</h2><p class="workspace-copy">USB okuyucuyu okutun veya ilaç adını yazın. Kesin seçim yalnızca resmi EK-4/A kaydıyla yapılır.</p><div class="search-box"><span>${icon('barcode', 19)}</span><input id="barcode-input" value="${esc(state.barcodeInput)}" autocomplete="off" placeholder="Barkodu okutun veya ilaç adı…" /><button id="clear-barcode" class="search-clear" title="Temizle">${icon('close', 14)}</button><button id="scan-barcode" class="search-submit">Ara ${icon('search', 14)}</button></div>${renderSearchResults()}${renderMedicineCard()}<div class="activity-block"><div class="subhead"><span>SON HAREKETLER</span><small>${state.lastActions.length ? 'Bu oturum' : 'Bekliyor'}</small></div><div class="activity-feed">${activity}</div></div></section>
+      <section class="workspace-card workflow-panel"><div class="panel-topline"><span class="panel-index">02</span><span class="panel-kicker">RAPOR KONTROLÜ</span><span class="panel-state">${state.fileName ? 'Dosya alındı' : 'Dosya bekleniyor'}</span></div><h2 class="workspace-title">Belgeyi SUT akışına bağlayın.</h2><p class="workspace-copy">PDF, Excel veya CSV dosyasını bırakın; alanlar otomatik ayrıştırılsın ve kontrol listesine taşınsın.</p><div class="step-rail">${steps.map((step, index) => `<div class="rail-node ${step.state}"><span>${step.state === 'done' ? icon('check', 11) : index + 1}</span><small>${step.label}</small></div>${index < steps.length - 1 ? '<i></i>' : ''}`).join('')}</div><div class="upload-zone compact-upload" id="upload-zone"><div class="upload-visual"><span class="upload-ring">${icon('upload', 22)}</span><span class="upload-spark spark-a"></span><span class="upload-spark spark-b"></span></div><div class="upload-title">${state.fileName ? esc(state.fileName) : 'Rapor dosyanızı bırakın'}</div><div class="upload-help">PDF · XLSX · CSV desteklenir</div><button class="secondary-button upload-button" id="browse-report">${icon('document', 14)} Dosya seç</button><input id="file-input" class="file-input" type="file" accept=".pdf,.xlsx,.xls,.csv,.txt" /></div><div class="workflow-footer"><div><span class="mini-status ${state.rows.length ? 'green' : ''}"></span><span>${state.rows.length ? `${state.rows.length} kayıt ayrıştırıldı` : 'Kontrol için dosya yükleyin'}</span></div><button class="primary-button compact-button" id="run-check">${icon('check', 15)} Kontrolü çalıştır</button></div></section>
+      ${renderAssistant()}
+    </div>
+    <div class="lower-grid"><section class="card results-card"><div class="card-header"><div><div class="section-kicker">KONTROL KAYDI</div><h2 class="card-title">Sonuçlar</h2><div class="card-description">${state.fileName ? esc(state.fileName) : 'Henüz rapor yüklenmedi'}</div></div><button class="card-link" id="export-results">${icon('download', 14)} Dışa aktar</button></div><div class="table-wrap"><table class="report-table"><thead><tr><th>Hasta</th><th>İlaç / barkod</th><th>Rapor no</th><th>Tanı</th><th>Tarih</th><th>Durum</th><th></th></tr></thead><tbody>${renderRows()}</tbody></table></div></section><section class="card checklist-card"><div class="card-header"><div><div class="section-kicker">KANIT LİSTESİ</div><h2 class="card-title">Raporda bunlar var mı?</h2><div class="card-description">Seçilen ürün ve dosyaya göre</div></div><span class="check-count">${getCriteria().filter((item) => item.status === 'ok').length}/${getCriteria().length}</span></div><div class="criteria-list">${renderCriteria()}</div><div class="card-footnote">${icon('info', 14)} Kesin ödeme kararı için ilgili SUT maddesi ve rapor yetkili kişi tarafından doğrulanmalıdır.</div></section></div>
+    <div class="disclaimer-bar"><span class="disclaimer-icon">${icon('shield', 14)}</span><span>Kaynaklı ön kontrol</span><i></i><span>SGK EK-4/A</span><i></i><span>İnsan onayı gerekli</span><i></i><span>Kesin ödeme kararı değildir</span></div>
   </section>`;
 }
-
 function renderOtherPage() {
   const titles = { reports: ['Kontrol geçmişi', 'Daha önce işlenen rapor kayıtlarını ve sonuç özetlerini yönetin.'], sut: ['SUT ve veri güncellemeleri', 'Resmi kaynak, paket doğrulama ve sürüm geçmişini izleyin.'], settings: ['Ayarlar', 'Barkod okuyucu, kontrol davranışı ve güncelleme tercihlerini yönetin.'], assistant: ['Akıllı asistan', 'Kaynak gösteren ön değerlendirme ve kontrol açıklamaları.'] };
   const [title, subtitle] = titles[state.activePage] || titles.dashboard;
@@ -161,10 +233,10 @@ function renderOtherPage() {
 
 function render() {
   const navItems = [['dashboard', 'Kontrol merkezi', 'dashboard'], ['reports', 'Kontrol geçmişi', 'document'], ['sut', 'SUT & Veri merkezi', 'refresh'], ['assistant', 'Akıllı asistan', 'spark'], ['settings', 'Ayarlar', 'settings']];
-  app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">${icon('shield', 24)}</div><div><div class="brand-name">Eczane<span>SUT</span></div><div class="brand-caption">Rapor uygunluk merkezi</div></div></div><div class="nav-label">Çalışma alanı</div>${navItems.slice(0, 2).map(([page, label, ico]) => `<button class="nav-item ${state.activePage === page ? 'active' : ''}" data-page="${page}">${icon(ico)}<span>${label}</span></button>`).join('')}<div class="nav-label">Veri ve yardımcılar</div>${navItems.slice(2).map(([page, label, ico]) => `<button class="nav-item ${state.activePage === page ? 'active' : ''}" data-page="${page}">${icon(ico)}<span>${label}</span>${page === 'assistant' ? '<span class="nav-new">AI</span>' : ''}</button>`).join('')}<div class="sidebar-footer"><div class="connection"><span class="connection-dot"></span><span>Güncelleme servisi bağlı</span></div><div class="version">Sürüm ${esc(state.appVersion)} · Windows 11</div></div></aside><main class="main-area"><header class="topbar"><div class="breadcrumb">Eczane SUT <span>/</span> <strong>${state.activePage === 'dashboard' ? 'Kontrol merkezi' : esc({ reports: 'Kontrol geçmişi', sut: 'SUT & Veri merkezi', assistant: 'Akıllı asistan', settings: 'Ayarlar' }[state.activePage] || 'Kontrol merkezi')}</strong></div><div class="top-actions"><button class="icon-button" id="check-update" title="Güncellemeleri kontrol et">${icon('refresh', 18)}</button><button class="icon-button" id="open-settings" title="Ayarlar">${icon('settings', 18)}</button><div class="user-badge"><div class="user-avatar">E</div><div><div class="user-name">Eczane çalışma alanı</div><div class="user-role">Yerel ve kaynaklı kontrol</div></div></div></div></header>${state.activePage === 'dashboard' ? renderDashboard() : renderOtherPage()}</main></div><div class="toast" id="toast"></div>`;
+  const pageTitle = state.activePage === 'dashboard' ? 'Kontrol merkezi' : ({ reports: 'Kontrol geçmişi', sut: 'SUT & Veri merkezi', assistant: 'Akıllı asistan', settings: 'Ayarlar' }[state.activePage] || 'Kontrol merkezi');
+  app.innerHTML = `<div class="app-shell"><aside class="sidebar"><div class="brand"><div class="brand-mark">${icon('shield', 22)}<span></span></div><div><div class="brand-name">Eczane<span>SUT</span></div><div class="brand-caption">Rapor uygunluk merkezi</div></div></div><div class="sidebar-heading">ÇALIŞMA ALANI</div><nav class="nav-group">${navItems.slice(0, 2).map(([page, label, ico]) => `<button class="nav-item ${state.activePage === page ? 'active' : ''}" data-page="${page}"><span class="nav-icon">${icon(ico, 17)}</span><span>${label}</span>${page === 'dashboard' ? '<em>1</em>' : ''}</button>`).join('')}</nav><div class="sidebar-heading secondary-heading">VERİ VE YARDIMCILAR</div><nav class="nav-group">${navItems.slice(2).map(([page, label, ico]) => `<button class="nav-item ${state.activePage === page ? 'active' : ''}" data-page="${page}"><span class="nav-icon">${icon(ico, 17)}</span><span>${label}</span>${page === 'assistant' ? '<b class="nav-badge">AI</b>' : ''}</button>`).join('')}</nav><div class="sidebar-bottom"><div class="connection"><span class="connection-dot"></span><div><strong>Servis bağlı</strong><small>Otomatik güncelleme açık</small></div></div><div class="version">v${esc(state.appVersion)} <span>·</span> Windows 11</div></div></aside><main class="main-area"><header class="topbar"><div class="topbar-context"><span class="topbar-kicker">Eczane SUT</span><span class="topbar-slash">/</span><strong>${pageTitle}</strong></div><div class="top-actions"><div class="top-status"><span class="top-status-dot"></span><span>Yerel çalışma alanı</span></div><button class="top-action" id="check-update" title="Güncellemeleri kontrol et">${icon('refresh', 15)} <span>Güncelle</span></button><button class="icon-button" id="open-settings" title="Ayarlar">${icon('settings', 17)}</button><div class="user-badge"><div class="user-avatar">E</div><div><strong>Eczane ekibi</strong><small>Kaynaklı kontrol</small></div></div></div></header>${state.activePage === 'dashboard' ? renderDashboard() : renderOtherPage()}</main></div><div class="toast" id="toast"></div>`;
   bindEvents();
 }
-
 function toast(message, type = '') {
   const node = document.querySelector('#toast');
   if (!node) return;
@@ -195,9 +267,14 @@ function parseRecords(records) {
     const diagnosis = get('tanı', 'tani', 'icd-10', 'icd10', 'endikasyon');
     const dose = get('doz', 'kullanım', 'kullanim', 'doz ve kullanım');
     const specialist = get('uzmanlık', 'uzmanlik', 'branş', 'brans');
+    const packageCount = get('kutu', 'kutu sayısı', 'kutu sayisi', 'kutu adedi', 'miktar', 'quantity');
+    const reportCode = get('rapor kodu', 'rapor kod', 'reçete uyarı kodu', 'recete uyarı kodu', 'recete uyarı kodu');
+    const indication = get('endikasyon', 'endikasyon kodu', 'uygunluk nedeni');
+    const treatment = get('tedavi tipi', 'tedavi türü', 'tedavi turu');
+    const setting = get('uygulama', 'uygulama yeri', 'ayaktan', 'yatan');
     const tc = get('tc', 'tc kimlik', 'hasta no') || '••••••••••';
     const missing = !endDate || !diagnosis || !barcode;
-    return { patient, tc, medicine, report, date, endDate, barcode, diagnosis, dose, specialist, status: missing ? 'warn' : 'ok', note: missing ? 'Rapor alanlarından biri incelenmeli' : 'Temel alanlar bulundu' };
+    return { patient, tc, medicine, report, date, endDate, barcode, diagnosis, dose, specialist, packageCount, reportCode, indication, treatment, setting, status: missing ? 'warn' : 'ok', note: missing ? 'Rapor alanlarından biri incelenmeli' : 'Temel alanlar bulundu' };
   });
 }
 
@@ -261,6 +338,7 @@ function selectMedicine(medicine) {
   state.barcodeInput = medicine.barcode || state.barcodeInput;
   const ambiguity = state.searchResults.filter((item) => item.barcode === medicine.barcode).length > 1;
   state.assistantText = ambiguity ? 'Aynı barkodla birden fazla kayıt bulundu. Ürün ve yürürlük tarihini yetkili kişi teyit etmeden uygun kabul etmeyin.' : `${medicine.name} kaydı resmi EK-4/A indeksinde bulundu. Kamu no ${medicine.publicNo || '—'}; eşdeğer grup ${medicine.equivalenceGroup || 'belirtilmemiş'}. Rapor kontrolü için tanı, tarih, doz ve yetkili uzmanlık alanlarını ayrıca doğrulayın.`;
+  state.assistantAssessment = buildSmartAssessment();
   state.lastActions.unshift({ title: `${medicine.name} seçildi`, time: nowText() });
   state.lastActions = state.lastActions.slice(0, 5);
   render();
@@ -278,6 +356,7 @@ async function loadFile(file) {
       const sheet = workbook.Sheets[workbook.SheetNames[0]];
       const records = XLSX.utils.sheet_to_json(sheet, { defval: '', raw: false });
       state.rows = parseRecords(records);
+      state.assistantAssessment = buildSmartAssessment();
       state.checkedAt = 'Excel yüklendi · kontrol bekliyor';
       render();
       toast(`${file.name} yüklendi. ${state.rows.length} kayıt bulundu.`);
@@ -290,7 +369,7 @@ async function loadFile(file) {
   }
   if (lowerName.endsWith('.csv') || lowerName.endsWith('.txt')) {
     const reader = new FileReader();
-    reader.onload = () => { state.rows = parseCsv(String(reader.result || '')); state.checkedAt = 'Dosya yüklendi · kontrol bekliyor'; render(); toast(`${file.name} yüklendi. ${state.rows.length} kayıt bulundu.`); };
+    reader.onload = () => { state.rows = parseCsv(String(reader.result || '')); state.assistantAssessment = buildSmartAssessment(); state.checkedAt = 'Dosya yüklendi · kontrol bekliyor'; render(); toast(`${file.name} yüklendi. ${state.rows.length} kayıt bulundu.`); };
     reader.readAsText(file, 'utf-8');
     return;
   }
@@ -305,6 +384,7 @@ async function loadFile(file) {
     try {
       const text = await api.parsePdf(new Uint8Array(await file.arrayBuffer()));
       state.rows = parsePdfText(text);
+      state.assistantAssessment = buildSmartAssessment();
       state.checkedAt = state.rows.length ? 'PDF metni ayrıştırıldı · kontrol bekliyor' : 'PDF görüntü tabanlı veya alanları bulunamadı';
       render();
       toast(state.rows.length ? `${file.name} okundu. ${state.rows.length} kayıt bulundu.` : 'PDF’de okunabilir alan bulunamadı; taranmış belge için manuel inceleme gerekir.', state.rows.length ? '' : 'warning');
@@ -334,8 +414,28 @@ function runCheck() {
   const warnings = state.rows.filter((row) => row.status === 'warn').length;
   state.checkedAt = `${nowText()} · kontrol tamamlandı`;
   state.assistantText = state.selectedMedicine ? `Kontrol tamamlandı. ${errors} barkod uyuşmazlığı ve ${warnings} eksik/inceleme kaydı bulundu. Bu sonuç, seçilen ürünün kaynaklı barkod kaydı ile yüklenen rapor alanlarının karşılaştırmasıdır; ödeme kararı değildir.` : `Kontrol tamamlandı. ${warnings} kayıt manuel inceleme bekliyor. Bir ilaç seçerek rapor barkodunu kaynaklı EK-4/A kaydıyla karşılaştırabilirsiniz.`;
+  state.assistantAssessment = buildSmartAssessment();
   render();
   toast(errors ? `${errors} barkod uyuşmazlığı bulundu.` : 'Rapor kontrolü tamamlandı.');
+}
+
+async function runSmartAnalysis() {
+  if (state.aiBusy) return;
+  state.aiBusy = true;
+  render();
+  await new Promise((resolve) => window.setTimeout(resolve, 260));
+  const assessment = buildSmartAssessment();
+  state.assistantAssessment = assessment;
+  state.assistantText = assessment.errors.length
+    ? `Akıllı analiz barkod uyuşmazlığı tespit etti. Raporu göndermeden önce seçilen ürün, rapor barkodu ve yürürlük tarihini tekrar doğrulayın.`
+    : assessment.warnings.length
+      ? `Akıllı analiz ${assessment.warnings.length} inceleme başlığı çıkardı. Eksik kanıtları belge üzerinden tamamlayın; SUT maddesini yetkili kişi ayrıca teyit etmelidir.`
+      : 'Akıllı analiz, yüklenen rapordaki temel kanıtları ve seçilen SGK ilaç kaydını tutarlı buldu. Bu sonuç kesin ödeme kararı değildir.';
+  state.aiBusy = false;
+  state.lastActions.unshift({ title: 'Akıllı ön kontrol çalıştırıldı', time: nowText() });
+  state.lastActions = state.lastActions.slice(0, 5);
+  render();
+  toast(assessment.errors.length ? 'AI analizi uyuşmazlık buldu.' : assessment.warnings.length ? 'AI analizi inceleme başlıklarını çıkardı.' : 'AI ön analizi tamamlandı.');
 }
 
 function exportResults() {
@@ -360,6 +460,16 @@ function bindEvents() {
   zone?.addEventListener('dragleave', () => zone.classList.remove('dragging'));
   zone?.addEventListener('drop', (event) => { event.preventDefault(); zone.classList.remove('dragging'); loadFile(event.dataTransfer.files[0]); });
   document.querySelector('#run-check')?.addEventListener('click', runCheck);
+  document.querySelector('#run-ai-analysis')?.addEventListener('click', runSmartAnalysis);
+  document.querySelectorAll('[data-workflow]').forEach((field) => {
+    const key = field.dataset.workflow;
+    const sync = () => {
+      state.workflow[key] = field.type === 'checkbox' ? field.checked : field.value.trim();
+      state.assistantAssessment = buildSmartAssessment();
+      if (field.type === 'checkbox' || field.tagName === 'SELECT') render();
+    };
+    field.addEventListener(field.type === 'text' ? 'input' : 'change', sync);
+  });
   document.querySelector('#export-results')?.addEventListener('click', exportResults);
   document.querySelector('#refresh-sut')?.addEventListener('click', checkSutUpdates);
   document.querySelector('#check-update')?.addEventListener('click', checkAppUpdates);

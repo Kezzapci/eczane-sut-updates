@@ -66,7 +66,7 @@ async function installSutPackage(manifest) {
 
   try {
     sendSutStatus(`SUT ${manifest.dataVersion} indiriliyor`);
-    const response = await fetch(manifest.packageUrl, { headers: { 'user-agent': 'Eczane-SUT-Kontrol/0.2' } });
+    const response = await fetch(manifest.packageUrl, { headers: { 'user-agent': `Eczane-SUT-Kontrol/${app.getVersion()}` } });
     if (!response.ok) throw new Error(`SGK paketi ${response.status} döndürdü`);
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength !== manifest.bytes) throw new Error('SUT paket boyutu manifest ile eşleşmiyor');
