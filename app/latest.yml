@@ -1,0 +1,5 @@
+# electron-builder bu dosyayı GitHub Release yayınında üretir.
+version: 0.1.0
+path: Eczane-SUT-Kontrol-Setup-0.1.0.exe
+sha512: pending-release
+releaseDate: 2026-08-18T00:00:00.000Z
