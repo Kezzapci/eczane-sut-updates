@@ -40,3 +40,7 @@ Dosya seç düğmesi arayüzde doğru çalışıyor. Test tarayıcısında gizli
 ### Başarılı XLSX uçtan uca testi
 
 `sample-report.xlsx` görünür file input üzerinden yüklendi. Uygulama 1 kayıt buldu; hasta, barkod, rapor numarası, tanı, tarih, doz/kullanım ve uzmanlık alanlarını eşleştirdi. Gereksinim paneli 6/6, sonuç özeti 1 uygun kayıt, %100 olarak görüntülendi. Bu sonuç yalnızca test dosyasının alan bütünlüğünü gösterir; SUT kapsamındaki nihai ödeme uygunluğu anlamına gelmez.
+
+### Public SUT paket içerik doğrulaması
+
+`https://github.com/Kezzapci/eczane-sut-updates/releases/download/sut-data-2026.07.01-46a95d66/sut-package.zip` arşivi indirildi ve içerik listesi kontrol edildi. Paket 30.632.706 bayt; güncel EK-4A XLSX ve mülga EK-4A listelerini içeriyor, ancak henüz `medicine-index.json` içermiyor. Bu nedenle otomatik SUT workflow’unun enrichment adımı çalıştırılarak yeni doğrulanmış SUT veri Release’i yayımlanmalıdır.

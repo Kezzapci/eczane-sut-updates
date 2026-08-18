@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: '45 3 * * *'
   workflow_dispatch:
+    inputs:
+      force_republish:
+        description: 'Mevcut resmi paketi EK-4A barkod indeksiyle yeniden zenginleştir'
+        required: false
+        default: 'false'
+        type: boolean
 
 permissions:
   contents: write
@@ -36,7 +42,7 @@ jobs:
           set -euo pipefail
           mkdir -p "$SUT_OUTPUT_DIR"
           node scripts/fetch-sut.mjs | tee /tmp/sut-fetch.log
-          if grep -q '^changed=true' /tmp/sut-fetch.log; then
+          if grep -q '^changed=true' /tmp/sut-fetch.log || [[ "${{ inputs.force_republish || 'false' }}" == "true" ]]; then
             echo "changed=true" >> "$GITHUB_OUTPUT"
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
