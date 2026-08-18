@@ -25,7 +25,19 @@ jobs:
       - name: Bağımlılıkları kur
         run: npm ci
 
-      - name: Windows yükleyicisini derle ve Release’e yükle
+      - name: Sürüm bilgisini hazırla
+        shell: pwsh
+        run: |
+          "APP_VERSION=$(node -p \"require('./package.json').version\")" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Windows yükleyicisini derle ve draft Release’e yükle
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          EP_DRAFT: 'true'
         run: npm run release
+
+      - name: Release’i otomatik yayımla
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: pwsh
+        run: gh release edit "v$env:APP_VERSION" --repo "$env:GITHUB_REPOSITORY" --draft=false
