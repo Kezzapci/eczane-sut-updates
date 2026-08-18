@@ -96,21 +96,33 @@ function renderMedicineCard() {
 
 function getCriteria() {
   const medicine = state.selectedMedicine;
+  const row = state.rows[0] || {};
   const hasMedicine = Boolean(medicine);
+  const reportBarcode = String(row.barcode || '').trim();
+  const knownBarcodes = (medicine?.barcodes || [medicine?.barcode]).filter(Boolean).map(String);
+  const barcodeMatches = Boolean(hasMedicine && reportBarcode && knownBarcodes.includes(reportBarcode));
   const required = [
-    { key: 'report', label: 'Rapor numarası ve rapor türü', value: state.rows[0]?.report, note: 'Rapor kimliği' },
-    { key: 'date', label: 'Rapor başlangıç / bitiş tarihi', value: state.rows[0]?.date && state.rows[0]?.endDate, note: 'Yürürlük süresi' },
-    { key: 'patient', label: 'Hasta bilgileri', value: state.rows[0]?.patient, note: 'Hasta ile eşleştirme' },
-    { key: 'diagnosis', label: 'Tanı veya ICD-10 bilgisi', value: state.rows[0]?.diagnosis, note: 'SUT koşul eşleştirmesi' },
-    { key: 'dose', label: 'Etkin madde, doz ve kullanım', value: state.rows[0]?.dose, note: 'Ürün kullanım koşulu' },
-    { key: 'specialist', label: 'Uzmanlık / rapor düzenleyen branş', value: state.rows[0]?.specialist, note: 'Yetkili uzmanlık kontrolü' }
+    { key: 'report', label: 'Rapor numarası ve rapor türü', value: row.report, note: 'Rapor kimliği' },
+    { key: 'date', label: 'Rapor başlangıç / bitiş tarihi', value: row.date && row.endDate, note: 'Yürürlük süresi' },
+    { key: 'patient', label: 'Hasta bilgileri', value: row.patient, note: 'Hasta ile eşleştirme' },
+    { key: 'medicineMatch', label: 'İlaç barkodu ve rapor eşleşmesi', value: barcodeMatches, note: hasMedicine ? (reportBarcode ? 'Seçilen ürünle barkod karşılaştırması' : 'Raporda barkod alanı bekleniyor') : 'Önce ilaç seçin' },
+    { key: 'diagnosis', label: 'Tanı veya ICD-10 bilgisi', value: row.diagnosis, note: 'SUT koşul eşleştirmesi' },
+    { key: 'dose', label: 'Etkin madde, doz ve kullanım', value: row.dose, note: 'Ürün kullanım koşulu' },
+    { key: 'specialist', label: 'Uzmanlık / rapor düzenleyen branş', value: row.specialist, note: 'Yetkili uzmanlık kontrolü' }
   ];
-  return required.map((item) => ({ ...item, status: item.value ? 'ok' : hasMedicine && item.key === 'report' ? 'warn' : 'warn' }));
+  return required.map((item) => {
+    if (item.key === 'medicineMatch') return { ...item, status: !hasMedicine || !state.rows.length ? 'warn' : barcodeMatches ? 'ok' : 'error' };
+    return { ...item, status: item.value ? 'ok' : 'warn' };
+  });
 }
 
 function renderCriteria() {
   const criteria = getCriteria();
-  return criteria.map((item) => `<div class="criteria-row"><span class="criteria-icon ${item.status}">${item.status === 'ok' ? icon('check', 14) : icon('alert', 14)}</span><div><strong>${esc(item.label)}</strong><small>${esc(item.status === 'ok' ? 'Dosyada bulundu' : item.note + ' için bilgi bekleniyor')}</small></div><span class="criteria-status ${item.status}">${item.status === 'ok' ? 'Var' : 'Eksik'}</span></div>`).join('');
+  return criteria.map((item) => {
+    const label = item.status === 'ok' ? 'Var' : item.status === 'error' ? 'Uyuşmuyor' : 'Eksik';
+    const note = item.status === 'ok' ? 'Dosyada bulundu' : item.status === 'error' ? item.note : item.note + ' için bilgi bekleniyor';
+    return `<div class="criteria-row"><span class="criteria-icon ${item.status}">${item.status === 'ok' ? icon('check', 14) : icon('alert', 14)}</span><div><strong>${esc(item.label)}</strong><small>${esc(note)}</small></div><span class="criteria-status ${item.status}">${label}</span></div>`;
+  }).join('');
 }
 
 function renderSearchResults() {
@@ -201,13 +213,39 @@ function parseCsv(text) {
   return parseRecords(records);
 }
 
+function parsePdfText(text) {
+  const lines = String(text || '').split(/\r?\n/).map((line) => line.replace(/\s+/g, ' ').trim()).filter(Boolean);
+  const valueAfter = (patterns) => {
+    const line = lines.find((candidate) => patterns.some((pattern) => pattern.test(candidate)));
+    if (!line) return '';
+    const parts = line.split(/\s*[:;|-]\s*/);
+    return parts.length > 1 ? parts.slice(1).join(' ').trim() : line.replace(/^(hasta adı|hasta adi|ad soyad|ilaç adı|ilac adi|barkod|rapor no|rapor numarası|rapor numarasi|tanı|tani|icd-?10|rapor tarihi|başlangıç tarihi|baslangic tarihi|bitiş tarihi|bitis tarihi|doz|kullanım|kullanim|uzmanlık|uzmanlik|branş|brans)\s*/i, '').trim();
+  };
+  const record = {
+    hasta: valueAfter([/hasta\s*(adı|adi)?/i, /ad\s*soyad/i]),
+    barkod: valueAfter([/barkod/i]),
+    'rapor no': valueAfter([/rapor\s*(no|numarası|numarasi)/i]),
+    tanı: valueAfter([/tanı/i, /tani/i, /icd\s*-?\s*10/i, /endikasyon/i]),
+    'rapor tarihi': valueAfter([/rapor\s*tarihi/i, /başlangıç\s*tarihi/i, /baslangic\s*tarihi/i]),
+    'rapor bitiş tarihi': valueAfter([/bitiş\s*tarihi/i, /bitis\s*tarihi/i]),
+    doz: valueAfter([/doz/i, /kullanım/i, /kullanim/i]),
+    uzmanlık: valueAfter([/uzmanlık/i, /uzmanlik/i, /branş/i, /brans/i])
+  };
+  const useful = Object.values(record).filter(Boolean).length;
+  return useful ? parseRecords([record]) : [];
+}
+
 async function localSearch(query) {
   if (!state.medicineIndex) {
     try { state.medicineIndex = await (await fetch('/medicine-index.json')).json(); } catch { state.medicineIndex = { items: [] }; }
   }
-  const needle = String(query || '').toLocaleLowerCase('tr-TR').trim();
+  const needle = normaliseHeader(query);
   if (!needle) return [];
-  return (state.medicineIndex.items || []).filter((item) => (item.searchText || `${item.name} ${item.barcode}`).includes(needle)).slice(0, 20).map((item) => ({ ...item, matchType: item.barcodes?.includes(needle) ? 'Barkod eşleşmesi' : 'Metin eşleşmesi' }));
+  return (state.medicineIndex.items || []).filter((item) => {
+    const barcodes = (item.barcodes || [item.barcode]).filter(Boolean).map(String);
+    const searchText = normaliseHeader(item.searchText || `${item.name} ${item.barcode}`);
+    return barcodes.includes(String(query).trim()) || searchText.includes(needle);
+  }).slice(0, 20).map((item) => ({ ...item, matchType: (item.barcodes || []).includes(String(query).trim()) ? 'Barkod eşleşmesi' : 'Metin eşleşmesi' }));
 }
 
 async function searchMedicine(query) {
@@ -256,19 +294,48 @@ async function loadFile(file) {
     reader.readAsText(file, 'utf-8');
     return;
   }
+  if (lowerName.endsWith('.pdf')) {
+    if (!api.parsePdf) {
+      state.rows = [];
+      state.checkedAt = 'PDF alındı · masaüstü ayrıştırması bekleniyor';
+      render();
+      toast('PDF alan kontrolü masaüstü paketinde etkin; önizleme modunda dosya metni okunamaz.', 'warning');
+      return;
+    }
+    try {
+      const text = await api.parsePdf(new Uint8Array(await file.arrayBuffer()));
+      state.rows = parsePdfText(text);
+      state.checkedAt = state.rows.length ? 'PDF metni ayrıştırıldı · kontrol bekliyor' : 'PDF görüntü tabanlı veya alanları bulunamadı';
+      render();
+      toast(state.rows.length ? `${file.name} okundu. ${state.rows.length} kayıt bulundu.` : 'PDF’de okunabilir alan bulunamadı; taranmış belge için manuel inceleme gerekir.', state.rows.length ? '' : 'warning');
+    } catch (error) {
+      state.rows = [];
+      state.checkedAt = 'PDF okunamadı';
+      render();
+      toast(`PDF okunamadı: ${error.message}`, 'error');
+    }
+    return;
+  }
   state.rows = [];
-  state.checkedAt = 'PDF alındı · metin ayrıştırması bu sürümde beklemede';
+  state.checkedAt = 'Desteklenmeyen rapor formatı';
   render();
-  toast(`${file.name} alındı. PDF kontrolü için metin/alan eşleme modülü ayrıca doğrulanmalıdır.`, 'warning');
+  toast(`${file.name} desteklenmeyen bir format. PDF, XLSX veya CSV kullanın.`, 'warning');
 }
 
 function runCheck() {
   if (!state.fileName && !state.selectedMedicine) { toast('Önce rapor dosyası veya ilaç seçin.', 'error'); return; }
-  state.rows = state.rows.map((row) => ({ ...row, status: row.note?.includes('incelenmeli') ? 'warn' : row.status || 'ok' }));
+  const selectedBarcodes = (state.selectedMedicine?.barcodes || [state.selectedMedicine?.barcode]).filter(Boolean).map(String);
+  state.rows = state.rows.map((row) => {
+    const missing = !row.endDate || !row.diagnosis || !row.barcode;
+    const mismatch = Boolean(selectedBarcodes.length && row.barcode && !selectedBarcodes.includes(String(row.barcode).trim()));
+    return { ...row, status: mismatch ? 'error' : missing ? 'warn' : 'ok', note: mismatch ? 'Seçilen ilaç ile rapor barkodu uyuşmuyor' : missing ? 'Rapor alanlarından biri incelenmeli' : 'Temel alanlar bulundu' };
+  });
+  const errors = state.rows.filter((row) => row.status === 'error').length;
+  const warnings = state.rows.filter((row) => row.status === 'warn').length;
   state.checkedAt = `${nowText()} · kontrol tamamlandı`;
-  state.assistantText = state.selectedMedicine ? `Kontrol tamamlandı. ${state.rows.filter((row) => row.status === 'warn').length} kayıt manuel inceleme bekliyor. Eksik alanları sağdaki listeden tamamlayın; karar öncesi ilgili SUT maddesini açın.` : 'Kontrol tamamlandı. Bir ilaç seçerek rapor alanlarını SUT ön kontrol listesiyle eşleştirebilirsiniz.';
+  state.assistantText = state.selectedMedicine ? `Kontrol tamamlandı. ${errors} barkod uyuşmazlığı ve ${warnings} eksik/inceleme kaydı bulundu. Bu sonuç, seçilen ürünün kaynaklı barkod kaydı ile yüklenen rapor alanlarının karşılaştırmasıdır; ödeme kararı değildir.` : `Kontrol tamamlandı. ${warnings} kayıt manuel inceleme bekliyor. Bir ilaç seçerek rapor barkodunu kaynaklı EK-4/A kaydıyla karşılaştırabilirsiniz.`;
   render();
-  toast('Rapor kontrolü tamamlandı.');
+  toast(errors ? `${errors} barkod uyuşmazlığı bulundu.` : 'Rapor kontrolü tamamlandı.');
 }
 
 function exportResults() {

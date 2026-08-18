@@ -44,3 +44,11 @@ Dosya seç düğmesi arayüzde doğru çalışıyor. Test tarayıcısında gizli
 ### Public SUT paket içerik doğrulaması
 
 `https://github.com/Kezzapci/eczane-sut-updates/releases/download/sut-data-2026.07.01-46a95d66/sut-package.zip` arşivi indirildi ve içerik listesi kontrol edildi. Paket 30.632.706 bayt; güncel EK-4A XLSX ve mülga EK-4A listelerini içeriyor, ancak henüz `medicine-index.json` içermiyor. Bu nedenle otomatik SUT workflow’unun enrichment adımı çalıştırılarak yeni doğrulanmış SUT veri Release’i yayımlanmalıdır.
+
+### Zenginleştirilmiş SUT Release doğrulaması
+
+Force-republish workflow’u başarılı tamamlandı. Güncel manifest `sut-data-2026.07.01-44093982` Release’ine işaret ediyor. Uçtan uca teslim testi başarılı: 31.059.225 bayt, SHA-256 `440939826b1252418ac10aa7d34c4ccd86282d02d955cd79903e80b1fb3d8b50`, 347 arşiv girdisi, ana SUT DOCX mevcut, aktif EK-4A mevcut ve `medicine-index.json` mevcut. Böylece masaüstü istemcisi barkod indeksini SUT veri paketiyle de alabiliyor.
+
+### PDF rapor ayrıştırma doğrulaması
+
+PDF desteği Electron ana sürecinde `pdf-parse` ile etkinleştirildi. Türkçe alanlar içeren örnek PDF’de 1 sayfa metin, barkod `8699525698636`, rapor no `R-2026-0001`, tanı, tarihler, doz ve uzmanlık metni başarıyla çıkarıldı. Görüntü/taranmış PDF’lerde metin katmanı yoksa sistem otomatik uygunluk vermeyip manuel inceleme uyarısı gösterir; OCR bu sürümün kapsamı dışındadır.

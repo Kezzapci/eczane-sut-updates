@@ -4,6 +4,7 @@ const fs = require('node:fs/promises');
 const crypto = require('node:crypto');
 const { autoUpdater } = require('electron-updater');
 const extractZip = require('extract-zip');
+const pdfParse = require('pdf-parse');
 
 const SUT_MANIFEST_URL = 'https://raw.githubusercontent.com/Kezzapci/eczane-sut-updates/main/sut/latest.json';
 const SUT_ROOT = () => path.join(app.getPath('userData'), 'sut-data');
@@ -49,8 +50,8 @@ async function validateSutPackage(staging) {
   const hasSutDocument = files.some((entry) => /2013 SUT.*\.docx$/i.test(entry));
   const hasActiveEk4a = files.some((entry) => /EK-4A.*\.(xlsx|xls)$/i.test(entry) && !/MÜLGA|MULGA/i.test(entry));
   const hasMedicineIndex = files.some((entry) => /(^|\/)medicine-index\.json$/i.test(entry));
-  if (!hasSutDocument || !hasActiveEk4a) {
-    throw new Error(`SUT paketi beklenen dosyaları içermiyor (SUT=${hasSutDocument}, EK-4A=${hasActiveEk4a})`);
+  if (!hasSutDocument || !hasActiveEk4a || !hasMedicineIndex) {
+    throw new Error(`SUT paketi beklenen dosyaları içermiyor (SUT=${hasSutDocument}, EK-4A=${hasActiveEk4a}, medicine-index=${hasMedicineIndex})`);
   }
   return { fileCount: files.length, hasMedicineIndex };
 }
@@ -213,6 +214,12 @@ ipcMain.handle('check-sut-updates', () => checkSutUpdates());
 ipcMain.handle('sut-info', async () => readJson(path.join(SUT_ROOT(), 'current', 'manifest.json')));
 ipcMain.handle('medicine-search', (_event, query) => searchMedicines(query));
 ipcMain.handle('medicine-info', (_event, barcode) => getMedicineInfo(barcode));
+ipcMain.handle('parse-pdf', async (_event, bytes) => {
+  const buffer = Buffer.from(bytes || []);
+  if (!buffer.length || buffer.length > 50 * 1024 * 1024) throw new Error('PDF dosyası boş veya 50 MB sınırını aşıyor');
+  const parsed = await pdfParse(buffer);
+  return String(parsed.text || '').slice(0, 2_000_000);
+});
 ipcMain.handle('install-update', () => { if (app.isPackaged) autoUpdater.quitAndInstall(); });
 ipcMain.handle('show-update-details', () => {
   dialog.showMessageBox(mainWindow, {
