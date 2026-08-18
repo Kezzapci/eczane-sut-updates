@@ -1,0 +1,66 @@
+name: SGK SUT verisini yayımla
+
+on:
+  schedule:
+    - cron: '45 3 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  publish-sut:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Depoyu al
+        uses: actions/checkout@v4
+
+      - name: Node.js kur
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: SGK kaynağını tara ve paketi doğrula
+        id: fetch
+        env:
+          SUT_OUTPUT_DIR: /tmp/sut-fetch
+        run: |
+          set -euo pipefail
+          mkdir -p "$SUT_OUTPUT_DIR"
+          node scripts/fetch-sut.mjs | tee /tmp/sut-fetch.log
+          if grep -q '^changed=true' /tmp/sut-fetch.log; then
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Release asset adını ve manifesti hazırla
+        if: steps.fetch.outputs.changed == 'true'
+        env:
+          SUT_RESULT: /tmp/sut-fetch/result.json
+          MANIFEST_OUTPUT: /tmp/sut-fetch/manifest.json
+          UPDATES_REPO: ${{ github.repository }}
+        run: |
+          set -euo pipefail
+          node scripts/write-manifest.mjs
+          echo "data_version=$(jq -r .dataVersion /tmp/sut-fetch/result.json)" >> "$GITHUB_ENV"
+          echo "release_tag=$(jq -r .packageUrl /tmp/sut-fetch/manifest.json | sed -E 's#.*/releases/download/([^/]+)/.*#\1#')" >> "$GITHUB_ENV"
+          echo "asset_name=sut-$(jq -r .dataVersion /tmp/sut-fetch/result.json).zip" >> "$GITHUB_ENV"
+
+      - name: SUT veri Release’ini oluştur
+        if: steps.fetch.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          gh release create "$release_tag" "/tmp/sut-fetch/sut-package.zip#${asset_name}" --repo "$GITHUB_REPOSITORY" --title "SUT veri ${data_version}" --notes "Resmi SGK kaynağı SHA-256 ile doğrulanarak otomatik yayımlandı."
+
+      - name: latest manifesti yayımla
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add sut/latest.json
+          git commit -m "data: publish SUT ${data_version}"
+          git push origin main
