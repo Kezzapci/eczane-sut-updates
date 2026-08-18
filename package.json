@@ -1,6 +1,6 @@
 {
   "name": "eczane-sut-kontrol",
-  "version": "0.1.1",
+  "version": "0.2.0",
   "description": "Windows 11 için eczane rapor kontrol ve SUT güncelleme uygulaması",
   "main": "electron/main.cjs",
   "author": "Kezzapci",
@@ -17,7 +17,8 @@
   },
   "dependencies": {
     "electron-updater": "^6.3.9",
-    "extract-zip": "^2.0.1"
+    "extract-zip": "^2.0.1",
+    "xlsx": "^0.18.5"
   },
   "devDependencies": {
     "concurrently": "^9.1.2",
@@ -37,6 +38,7 @@
     "files": [
       "dist/**/*",
       "electron/**/*",
+      "data/**/*",
       "package.json"
     ],
     "win": {

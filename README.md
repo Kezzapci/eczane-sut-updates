@@ -39,7 +39,7 @@ Windows yükleyicisi için:
 npm run dist:win
 ```
 
-GitHub Actions üzerinde Windows Release üretmek için `main` dalına `v0.1.2` biçiminde bir etiket gönderilebilir veya **Actions → Windows sürümünü yayınla → Run workflow** kullanılabilir. `npm run release` komutu, Windows yükleyicisini oluşturur ve aynı public depoda Release asset’i olarak yayımlar.
+GitHub Actions üzerinde Windows Release üretmek için `main` dalına `v0.2.0` biçiminde bir etiket gönderilebilir veya **Actions → Windows sürümünü yayınla → Run workflow** kullanılabilir. `npm run release` komutu, Windows yükleyicisini oluşturur ve aynı public depoda Release asset’i olarak yayımlar.
 
 ## Otomatik SUT veri güncellemesi
 
@@ -64,9 +64,11 @@ Paketli Windows uygulaması `electron-updater` ile bu deponun Releases bölümü
 
 Üretim güvenliği için Windows kod imzalama sertifikası ve sertifika parolası GitHub Actions secret’ları olarak eklenmelidir. Sertifika bilgileri kaynak koda, manifest dosyasına veya uygulamanın içine yazılmamalıdır.
 
-## Rapor akışı
+## Rapor ve ilaç akışı
 
-İlk arayüz CSV, PDF ve XLSX dosya seçim alanlarını içerir. CSV akışı hasta, ürün/ilaç, rapor numarası, tarih ve rapor bitiş tarihi gibi alanları okuyarak eksik bilgileri incelenmesi gereken kayıt olarak gösterecek şekilde hazırlanmıştır. PDF ve Excel ayrıştırıcıları ile SUT kural eşleştirmeleri, kontrol motorunun sonraki geliştirme katmanıdır. Arayüzdeki örnek kayıtlar yalnızca geliştirme önizlemesidir; üretim akışında seçilen dosya verisi kullanılmalıdır.
+0.2.0 sürümünde USB barkod okuyucular klavye gibi kullanılabilir; barkod numarası veya ilaç adı arama alanına yazıldığında yerel resmi SGK EK-4A indeksi içinde aranır. Sonuç kartında ilaç adı, güncel barkod, kamu numarası, eşdeğer grup ve kaynak bilgisi gösterilir. İndeks 8.429 kayıtlıdır ve SUT veri paketi güncellendiğinde yeniden üretilir.
+
+CSV ve XLSX raporları hasta, ürün/ilaç, barkod, rapor numarası, tarih, rapor bitiş tarihi, tanı/ICD-10, doz/kullanım ve uzmanlık alanı gibi başlıkları eşleştirerek eksik alanları kontrol listesinde gösterir. PDF seçim alanı arayüzde bulunur; PDF’nin serbest metnini güvenilir biçimde alanlara dönüştürme ve tüm SUT koşullarını madde düzeyinde uygulama sonraki doğrulanmış geliştirme katmanıdır. Uygulama hiçbir kaydı sahte uygun göstermemeli; kaynak bulunamadığında “inceleme gerekli” durumunu korumalıdır.
 
 ## Resmi kaynaklar
 

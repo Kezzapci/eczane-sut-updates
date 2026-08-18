@@ -7,7 +7,9 @@ const extractZip = require('extract-zip');
 
 const SUT_MANIFEST_URL = 'https://raw.githubusercontent.com/Kezzapci/eczane-sut-updates/main/sut/latest.json';
 const SUT_ROOT = () => path.join(app.getPath('userData'), 'sut-data');
+const BUNDLED_MEDICINE_INDEX = () => path.join(__dirname, '..', 'data', 'medicine-index.json');
 let mainWindow;
+let medicineCache;
 
 function sendStatus(message) {
   if (mainWindow && !mainWindow.isDestroyed()) mainWindow.webContents.send('update-status', message);
@@ -19,8 +21,7 @@ function sendSutStatus(message) {
 
 async function sha256File(filePath) {
   const hash = crypto.createHash('sha256');
-  const content = await fs.readFile(filePath);
-  hash.update(content);
+  hash.update(await fs.readFile(filePath));
   return hash.digest('hex');
 }
 
@@ -35,13 +36,9 @@ function isValidManifest(manifest) {
     packageUrl.hostname === 'github.com' &&
     packageUrl.pathname.startsWith('/Kezzapci/eczane-sut-updates/releases/download/');
   return Boolean(
-    manifest &&
-    manifest.schemaVersion === 1 &&
-    typeof manifest.dataVersion === 'string' &&
-    /^\d{4}\.\d{2}\.\d{2}$/.test(manifest.dataVersion) &&
-    allowedPackage &&
-    typeof manifest.sha256 === 'string' &&
-    /^[a-f0-9]{64}$/i.test(manifest.sha256) &&
+    manifest && manifest.schemaVersion === 1 &&
+    typeof manifest.dataVersion === 'string' && /^\d{4}\.\d{2}\.\d{2}$/.test(manifest.dataVersion) &&
+    allowedPackage && typeof manifest.sha256 === 'string' && /^[a-f0-9]{64}$/i.test(manifest.sha256) &&
     Number.isInteger(manifest.bytes) && manifest.bytes > 0 && manifest.bytes <= 250 * 1024 * 1024
   );
 }
@@ -49,12 +46,13 @@ function isValidManifest(manifest) {
 async function validateSutPackage(staging) {
   const entries = await fs.readdir(staging, { recursive: true });
   const files = entries.map((entry) => String(entry).replaceAll('\\', '/'));
-  const hasSutDocument = files.some((entry) => /2013 SUT.*\\.docx$/i.test(entry));
-  const hasActiveEk4a = files.some((entry) => /EK-4A.*\\.xlsx$/i.test(entry) && !/MÜLGA|MULGA/i.test(entry));
+  const hasSutDocument = files.some((entry) => /2013 SUT.*\.docx$/i.test(entry));
+  const hasActiveEk4a = files.some((entry) => /EK-4A.*\.(xlsx|xls)$/i.test(entry) && !/MÜLGA|MULGA/i.test(entry));
+  const hasMedicineIndex = files.some((entry) => /(^|\/)medicine-index\.json$/i.test(entry));
   if (!hasSutDocument || !hasActiveEk4a) {
     throw new Error(`SUT paketi beklenen dosyaları içermiyor (SUT=${hasSutDocument}, EK-4A=${hasActiveEk4a})`);
   }
-  return { fileCount: files.length };
+  return { fileCount: files.length, hasMedicineIndex };
 }
 
 async function installSutPackage(manifest) {
@@ -67,7 +65,7 @@ async function installSutPackage(manifest) {
 
   try {
     sendSutStatus(`SUT ${manifest.dataVersion} indiriliyor`);
-    const response = await fetch(manifest.packageUrl, { headers: { 'user-agent': 'Eczane-SUT-Kontrol/0.1' } });
+    const response = await fetch(manifest.packageUrl, { headers: { 'user-agent': 'Eczane-SUT-Kontrol/0.2' } });
     if (!response.ok) throw new Error(`SGK paketi ${response.status} döndürdü`);
     const buffer = Buffer.from(await response.arrayBuffer());
     if (buffer.byteLength !== manifest.bytes) throw new Error('SUT paket boyutu manifest ile eşleşmiyor');
@@ -83,13 +81,14 @@ async function installSutPackage(manifest) {
     await fs.rm(previous, { recursive: true, force: true });
     try { await fs.rename(current, previous); } catch { /* İlk kurulumda current olmayabilir. */ }
     await fs.rename(staging, current);
+    medicineCache = null;
     await fs.rm(archive, { force: true });
     sendSutStatus(`SUT ${manifest.dataVersion} otomatik yüklendi`);
-    return { updated: true, manifest };
+    return { updated: true, manifest, validation };
   } catch (error) {
     await fs.rm(staging, { recursive: true, force: true }).catch(() => {});
     await fs.rm(archive, { force: true }).catch(() => {});
-    sendSutStatus(`SUT güncellemesi başarısız · mevcut veri korunuyor`);
+    sendSutStatus('SUT güncellemesi başarısız · mevcut veri korunuyor');
     console.error('SUT update error:', error.message);
     return { updated: false, error: error.message };
   }
@@ -115,6 +114,39 @@ async function checkSutUpdates() {
   }
 }
 
+function normalise(value = '') {
+  return String(value).toLocaleLowerCase('tr-TR').normalize('NFD').replace(/[\u0300-\u036f]/g, '').replace(/ı/g, 'i').trim();
+}
+
+async function loadMedicineIndex() {
+  if (medicineCache) return medicineCache;
+  const installed = await readJson(path.join(SUT_ROOT(), 'current', 'medicine-index.json'));
+  const bundled = installed || await readJson(BUNDLED_MEDICINE_INDEX());
+  medicineCache = bundled?.items ? bundled : { items: [] };
+  return medicineCache;
+}
+
+async function searchMedicines(query = '') {
+  const index = await loadMedicineIndex();
+  const needle = normalise(query);
+  if (!needle) return [];
+  const exact = [];
+  const partial = [];
+  for (const item of index.items) {
+    const barcodes = Array.isArray(item.barcodes) ? item.barcodes : [item.barcode];
+    const barcodeMatch = barcodes.some((barcode) => normalise(barcode) === needle);
+    if (barcodeMatch) exact.push({ ...item, matchType: 'Barkod eşleşmesi' });
+    else if (normalise(item.searchText || `${item.name} ${item.barcode}`).includes(needle)) partial.push({ ...item, matchType: 'Metin eşleşmesi' });
+    if (exact.length >= 10) break;
+  }
+  return [...exact, ...partial].slice(0, 20);
+}
+
+async function getMedicineInfo(barcode) {
+  const results = await searchMedicines(barcode);
+  return results.find((item) => (item.barcodes || []).includes(String(barcode))) || results[0] || null;
+}
+
 function configureUpdater() {
   autoUpdater.autoDownload = true;
   autoUpdater.autoInstallOnAppQuit = true;
@@ -135,10 +167,10 @@ function configureUpdater() {
 
 function createWindow() {
   mainWindow = new BrowserWindow({
-    width: 1440,
-    height: 920,
-    minWidth: 1100,
-    minHeight: 720,
+    width: 1500,
+    height: 960,
+    minWidth: 1160,
+    minHeight: 760,
     backgroundColor: '#f4f7fb',
     title: 'Eczane SUT Kontrol',
     webPreferences: {
@@ -148,7 +180,6 @@ function createWindow() {
       sandbox: true
     }
   });
-
   if (process.env.ELECTRON_DEV === '1') {
     mainWindow.loadURL('http://127.0.0.1:5173');
     mainWindow.webContents.openDevTools({ mode: 'detach' });
@@ -162,21 +193,15 @@ app.whenReady().then(() => {
   createWindow();
   setTimeout(() => checkSutUpdates(), 2500);
   setInterval(() => checkSutUpdates(), 6 * 60 * 60 * 1000);
-
   if (app.isPackaged) {
     setTimeout(() => autoUpdater.checkForUpdates().catch((error) => console.error(error.message)), 3500);
   } else {
     sendStatus('Geliştirme sürümü · program güncellemesi paketli sürümde etkin');
   }
-
-  app.on('activate', () => {
-    if (BrowserWindow.getAllWindows().length === 0) createWindow();
-  });
+  app.on('activate', () => { if (BrowserWindow.getAllWindows().length === 0) createWindow(); });
 });
 
-app.on('window-all-closed', () => {
-  if (process.platform !== 'darwin') app.quit();
-});
+app.on('window-all-closed', () => { if (process.platform !== 'darwin') app.quit(); });
 
 ipcMain.handle('app-version', () => app.getVersion());
 ipcMain.handle('check-for-updates', async () => {
@@ -186,9 +211,9 @@ ipcMain.handle('check-for-updates', async () => {
 });
 ipcMain.handle('check-sut-updates', () => checkSutUpdates());
 ipcMain.handle('sut-info', async () => readJson(path.join(SUT_ROOT(), 'current', 'manifest.json')));
-ipcMain.handle('install-update', () => {
-  if (app.isPackaged) autoUpdater.quitAndInstall();
-});
+ipcMain.handle('medicine-search', (_event, query) => searchMedicines(query));
+ipcMain.handle('medicine-info', (_event, barcode) => getMedicineInfo(barcode));
+ipcMain.handle('install-update', () => { if (app.isPackaged) autoUpdater.quitAndInstall(); });
 ipcMain.handle('show-update-details', () => {
   dialog.showMessageBox(mainWindow, {
     type: 'info',

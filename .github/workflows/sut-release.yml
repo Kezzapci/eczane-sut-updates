@@ -1,4 +1,4 @@
-name: SGK SUT verisini yayımla
+name: SUT verisini otomatik yayınla
 
 on:
   schedule:
@@ -20,6 +20,14 @@ jobs:
         with:
           node-version: 22
 
+      - name: Python kur
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Veri araçlarını kur
+        run: python -m pip install --disable-pip-version-check openpyxl
+
       - name: SGK kaynağını tara ve paketi doğrula
         id: fetch
         env:
@@ -33,6 +41,21 @@ jobs:
           else
             echo "changed=false" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: EK-4A barkod ve ilaç indeksini üret
+        if: steps.fetch.outputs.changed == 'true'
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/sut-unpacked
+          mkdir -p /tmp/sut-unpacked
+          unzip -q /tmp/sut-fetch/sut-package.zip -d /tmp/sut-unpacked
+          ek4a=$(find /tmp/sut-unpacked -type f \( -iname '*EK-4A*.xlsx' -o -iname '*EK-4A*.xls' \) ! -iname '*MULGA*' ! -iname '*MÜLGA*' | head -n 1)
+          test -n "$ek4a"
+          python scripts/build-medicine-index.py "$ek4a" /tmp/sut-fetch/medicine-index.json
+          python scripts/enrich-sut-package.py \
+            --package /tmp/sut-fetch/sut-package.zip \
+            --index /tmp/sut-fetch/medicine-index.json \
+            --result /tmp/sut-fetch/result.json
 
       - name: Release asset adını ve manifesti hazırla
         if: steps.fetch.outputs.changed == 'true'
@@ -53,8 +76,11 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          cp /tmp/sut-fetch/sut-package.zip "/tmp/sut-fetch/${asset_name}"
-          gh release create "$release_tag" "/tmp/sut-fetch/${asset_name}" --repo "$GITHUB_REPOSITORY" --title "SUT veri ${data_version}" --notes "Resmi SGK kaynağı SHA-256 ile doğrulanarak otomatik yayımlandı."
+          cp /tmp/sut-fetch/sut-package-enriched.zip "/tmp/sut-fetch/${asset_name}"
+          gh release create "$release_tag" "/tmp/sut-fetch/${asset_name}" \
+            --repo "$GITHUB_REPOSITORY" \
+            --title "SUT veri ${data_version}" \
+            --notes "Resmi SGK kaynağı SHA-256 ile doğrulandı; EK-4A barkod ve ilaç arama indeksi pakete dahil edildi."
 
       - name: latest manifesti yayımla
         if: steps.fetch.outputs.changed == 'true'
