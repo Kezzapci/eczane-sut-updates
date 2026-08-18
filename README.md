@@ -39,7 +39,7 @@ Windows yükleyicisi için:
 npm run dist:win
 ```
 
-GitHub Actions üzerinde Windows Release üretmek için `main` dalına `v0.2.0` biçiminde bir etiket gönderilebilir veya **Actions → Windows sürümünü yayınla → Run workflow** kullanılabilir. `npm run release` komutu, Windows yükleyicisini oluşturur ve aynı public depoda Release asset’i olarak yayımlar.
+GitHub Actions üzerinde Windows Release üretmek için `main` dalına `v0.3.0` biçiminde bir etiket gönderilebilir veya **Actions → Windows sürümünü yayınla → Run workflow** kullanılabilir. Güncel kurulum [v0.3.0 Release sayfasından](https://github.com/Kezzapci/eczane-sut-updates/releases/tag/v0.3.0) indirilebilir. `npm run release` komutu, Windows yükleyicisini oluşturur ve aynı public depoda Release asset’i olarak yayımlar.
 
 ## Otomatik SUT veri güncellemesi
 
@@ -66,9 +66,9 @@ Paketli Windows uygulaması `electron-updater` ile bu deponun Releases bölümü
 
 ## Rapor ve ilaç akışı
 
-0.2.0 sürümünde USB barkod okuyucular klavye gibi kullanılabilir; barkod numarası veya ilaç adı arama alanına yazıldığında yerel resmi SGK EK-4A indeksi içinde aranır. Sonuç kartında ilaç adı, güncel barkod, kamu numarası, eşdeğer grup ve kaynak bilgisi gösterilir. İndeks 8.429 kayıtlıdır ve SUT veri paketi güncellendiğinde yeniden üretilir.
+0.3.0 sürümünde USB barkod okuyucular klavye gibi kullanılabilir; barkod numarası veya ilaç adı arama alanına yazıldığında yerel resmi SGK EK-4A indeksi içinde aranır. Sonuç kartında ilaç adı, güncel barkod, kamu numarası, eşdeğer grup ve kaynak bilgisi gösterilir. İndeks 8.429 kayıtlıdır ve SUT veri paketi güncellendiğinde yeniden üretilir.
 
-CSV ve XLSX raporları hasta, ürün/ilaç, barkod, rapor numarası, tarih, rapor bitiş tarihi, tanı/ICD-10, doz/kullanım ve uzmanlık alanı gibi başlıkları eşleştirerek eksik alanları kontrol listesinde gösterir. PDF seçim alanı arayüzde bulunur; PDF’nin serbest metnini güvenilir biçimde alanlara dönüştürme ve tüm SUT koşullarını madde düzeyinde uygulama sonraki doğrulanmış geliştirme katmanıdır. Uygulama hiçbir kaydı sahte uygun göstermemeli; kaynak bulunamadığında “inceleme gerekli” durumunu korumalıdır.
+CSV, XLSX ve **metin katmanı bulunan PDF** raporları hasta, ürün/ilaç, barkod, rapor numarası, tarih, rapor bitiş tarihi, tanı/ICD-10, doz/kullanım ve uzmanlık alanı gibi başlıkları eşleştirerek eksik alanları kontrol listesinde gösterir. PDF metni Electron ana sürecinde güvenli IPC köprüsüyle ayrıştırılır; taranmış veya görüntü tabanlı PDF’lerde OCR bulunmadığı için sistem otomatik uygunluk vermek yerine manuel inceleme uyarısı gösterir. Seçili ilaç ile rapor barkodu uyuşmazlığı ayrı bir hata durumudur. Uygulama hiçbir kaydı sahte uygun göstermemeli; kaynak bulunamadığında “inceleme gerekli” durumunu korumalıdır.
 
 ## Resmi kaynaklar
 
