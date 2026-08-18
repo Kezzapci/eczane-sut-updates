@@ -28,7 +28,8 @@ jobs:
       - name: Sürüm bilgisini hazırla
         shell: pwsh
         run: |
-          "APP_VERSION=$(node -p \"require('./package.json').version\")" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
+          $version = node -p "require('./package.json').version"
+          "APP_VERSION=$version" | Out-File -FilePath $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Windows yükleyicisini derle ve draft Release’e yükle
         env:
