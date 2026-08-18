@@ -40,5 +40,5 @@ jobs:
         shell: pwsh
         run: |
           $assets = Get-ChildItem -Path release -File | Where-Object { $_.Name -match '\.(exe|blockmap|yml)$' } | ForEach-Object { $_.FullName }
-          if (-not $assets) { throw 'release klasöründe Windows asset’i bulunamadı.' }
+          if (-not $assets) { throw "release klasorunde Windows asset bulunamadi." }
           gh release create "v$env:APP_VERSION" $assets --repo "$env:GITHUB_REPOSITORY" --title "Eczane SUT Kontrol $env:APP_VERSION" --notes "Windows masaüstü sürümü otomatik oluşturuldu."
