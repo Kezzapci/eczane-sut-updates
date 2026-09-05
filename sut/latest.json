@@ -4,9 +4,9 @@
   "published": "29/08/2026",
   "sourceUrl": "https://www.sgk.gov.tr/duyuru/detay/29082026-SUT-Degisiklik-Tebligi-Islenmis-Guncel-2013-SUT-2026-08-31-03-06-04",
   "sourceFile": "2026.08.29-Değişiklik Tebliği İşlenmiş Güncel 2013 SUT.zip",
-  "sha256": "706ae4351582a3afc1641cda13391562859b03f7f59cfa80b9ca609553a863ff",
-  "bytes": 32409803,
-  "packageUrl": "https://github.com/Kezzapci/eczane-sut-updates/releases/download/sut-data-2026.08.29-706ae435/sut-2026.08.29.zip",
+  "sha256": "37f8b50359eb28ef2ea02d00acd5c1583de5661a5b82310bbd80122980050bb3",
+  "bytes": 32409802,
+  "packageUrl": "https://github.com/Kezzapci/eczane-sut-updates/releases/download/sut-data-2026.08.29-37f8b503/sut-2026.08.29.zip",
   "delivery": "github-release",
-  "generatedAt": "2026-09-04T08:15:39.748Z"
+  "generatedAt": "2026-09-05T07:52:56.670Z"
 }
